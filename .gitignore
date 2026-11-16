@@ -1,0 +1,18 @@
+# 临时验证与截图文件
+_*.html
+_*.js
+_*.png
+_*.txt
+_*.pdf
+_*.log
+_cprof*/
+_chrome_probe_profile*/
+_edge_probe_profile*/
+_cdp_profile*/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

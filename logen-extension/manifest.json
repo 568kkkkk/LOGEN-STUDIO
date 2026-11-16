@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "LOGEN STUDIO · 悬浮采样器",
+  "version": "1.1.0",
+  "description": "在任意网页悬浮一个采样球，无共享窗口直接采集当前标签页音频，也可采麦克风 / 系统声音并保存到本地。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabCapture", "offscreen", "activeTab", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "LOGEN STUDIO · 点一下直接采样当前标签页（不弹共享窗口）" },
+  "background": { "service_worker": "service-worker.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
