@@ -312,6 +312,10 @@ input.text-input{height:34px;line-height:1.4}
 .pip-body .fab-panel{position:static;display:block;width:auto;box-shadow:none;border:0;border-radius:0;max-height:100vh;overflow-y:auto}
 .pip-tag{font-size:9px;letter-spacing:.12em;color:var(--muted);font-weight:700}
 footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:var(--muted);line-height:1.7}
+.coffee{margin-top:18px;padding-top:14px;border-top:1px solid var(--line2);display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center}
+.coffee-title{font-size:13px;color:var(--ink);font-weight:700}
+.coffee small{font-size:11px;color:var(--sub);line-height:1.7}
+.coffee img{width:120px;height:auto;display:block;border-radius:8px}
 
 @media(max-width:680px){.fab-panel{width:min(302px,calc(100vw - 24px));right:12px}#fab{right:14px;bottom:14px}}
 
@@ -674,6 +678,11 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
   悬浮采样说明：采集其他网页声音需由你在浏览器共享窗口里点选一个标签页并勾选「同时分享标签页中的音频」；采集其他应用窗口 / 系统声音需切到「整个屏幕」并勾选「同时分享系统音频」（Windows + Chrome 支持，macOS 多数版本仅限标签页）。本站会保持这条共享连接，之后按 C / F9 直接采样不再弹窗，也可随时「断开共享」。任意已打开标签页可用浏览器扩展无共享窗口直采；把系统输出接到虚拟声卡再用「麦克风」也可全程免弹窗。选「本站声音」内录则无需任何授权。该功能需要 HTTPS 或 localhost 环境。<br>
   采样管理：每条采样可点「✂ 编辑」框选波形、裁剪或另存；「✕ 删除」需二次确认，面板右上「✕ 清空」可一次移除全部；删除会同步解除轨道绑定。<br>
   <button id="footerAbout" class="btn sm" style="margin-top:8px">ⓘ 关于与完整声明</button>
+  <div class="coffee">
+    <strong class="coffee-title">请作者喝杯咖啡</strong>
+    <small>做这个东西花了很多个晚上，如果你觉得还挺好用，可以请作者喝一杯咖啡 ☕ 扫下面的码就行，金额随意，一份心意就够。你们用得开心，我就有动力继续更新。</small>
+    <img src="assets/alipay-qrcode.png" alt="支付宝收款码" width="120">
+  </div>
 </footer>
 
 <!-- EXPORT MODAL -->
