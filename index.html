@@ -49,7 +49,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .logo i{display:block;width:5px;height:16px;background:#fff;border-radius:1px;margin:0 2px}
 .logo i:nth-child(2){height:24px;background:var(--accent)}
 .logo i:nth-child(3){height:10px}
-.brand h1{margin:0;font-size:20px;line-height:1;letter-spacing:.03em;font-weight:700;color:var(--accent)}
+.brand h1{margin:0;font-size:20px;line-height:1;letter-spacing:.03em;font-weight:900;color:var(--accent)}
 .brand h1 span{font-size:12px;font-weight:600;letter-spacing:0;margin-left:5px;color:var(--accent);opacity:.6;font-family:inherit}
 .brand p{margin:3px 0 0;font-size:9px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
 .transport{display:flex;align-items:center;gap:7px}
@@ -190,6 +190,7 @@ kbd{font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif;b
 .preset-btn span{font-size:9px;color:var(--muted);font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif;letter-spacing:.06em}
 .preset-btn.active{border-color:var(--accent);background:var(--accent-soft)}
 canvas{display:block;width:100%;height:120px;background:var(--soft);border:1px solid var(--line);border-radius:7px}
+#scope{height:236px}
 .note{font-size:10px;line-height:1.6;color:var(--muted);overflow-wrap:anywhere}
 .deck-note{margin:10px 0 0}
 .audio-diag{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:9px 11px;font-size:10px;line-height:1.8;color:var(--sub);white-space:pre-line;overflow-wrap:anywhere;font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
@@ -430,6 +431,7 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
   .right-col .panel-body{padding:10px}
   .right-col .panel-head{padding:8px 10px}
   .right-col canvas{height:70px}
+  .right-col #scope{height:150px}
   .right-col .sample-list{max-height:150px}
   .right-col .note{font-size:9px}
   #drawerMask{display:block;position:fixed;inset:0;z-index:57;background:rgba(20,22,26,.3);opacity:0;pointer-events:none;transition:opacity .2s}
@@ -3457,13 +3459,14 @@ function bind(){
 }
 
 /* ---------------- scope ---------------- */
-/* 循环常驻：以前 drawScope 只在 init 画一帧就 return，rAF 只在「已播放」分支里
-   才注册，而 startPlayback 从不重启它，导致画布永远停在那一帧（且文字被缩放得
-   几乎看不见）。现在由 startScope() 统一驱动，drawScope() 只负责画一帧。 */
+/* rAF 由 startScope() 常驻驱动，drawScope() 每帧画一次。
+   专业显示：零点触发的辉光波形 + 对数频率轴频谱 + dB 刻度 + 峰值保持 + PEAK/RMS/主频读数。 */
 let scopeRAF=0, scopeTagState='';
+let scopePeakHold=null;                       // 频谱峰值保持（跨帧复用）
+const SCOPE_FONT='"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
 function fitScope(cv){
   const r=cv.getBoundingClientRect();
-  if(r.width<2||r.height<2) return null;             // 抽屉里未显示的面板先跳过
+  if(r.width<2||r.height<2) return null;      // 抽屉里未显示的面板先跳过
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const w=Math.max(1,Math.round(r.width*dpr)), h=Math.max(1,Math.round(r.height*dpr));
   if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
@@ -3475,71 +3478,165 @@ function drawScope(){
   const m=fitScope(cv); if(!m) return;
   const W=m.W,H=m.H;
   g.setTransform(m.dpr,0,0,m.dpr,0,0);
-  g.clearRect(0,0,W,H); g.fillStyle='#f7f7f4'; g.fillRect(0,0,W,H);
+  g.clearRect(0,0,W,H); g.fillStyle='#fafbf8'; g.fillRect(0,0,W,H);
 
-  /* 背景网格 */
-  g.strokeStyle='#e8e9e5'; g.lineWidth=1;
-  for(let i=1;i<6;i++){ const y=Math.round(H*i/6)+.5; g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
-  for(let i=1;i<8;i++){ const x=Math.round(W*i/8)+.5; g.beginPath(); g.moveTo(x,0); g.lineTo(x,H); g.stroke(); }
+  const accent=themeColor||'#2f5fe0';
+  const small=W<320;
 
-  /* 读取实时分析数据；键盘试奏（未点播放）也能让波形动起来 */
-  let td=null,fd=null,peak=0;
+  /* 读取实时分析数据：优先 float（更精确），否则回退 byte */
+  let tf=null,ff=null,peak=0,rms=0;
   if(analyser){
     try{
-      td=new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(td);
-      for(let i=0;i<td.length;i++){ const d=Math.abs(td[i]-128); if(d>peak) peak=d; }
-      fd=new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(fd);
-    }catch(e){ td=null; fd=null; }
+      if(analyser.getFloatTimeDomainData){
+        tf=new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(tf);
+        for(let i=0;i<tf.length;i++){ const a=Math.abs(tf[i]); if(a>peak)peak=a; rms+=tf[i]*tf[i]; }
+        rms=Math.sqrt(rms/tf.length);
+      }else{
+        const td=new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(td);
+        tf=new Float32Array(td.length);
+        for(let i=0;i<td.length;i++){ tf[i]=(td[i]-128)/128; const a=Math.abs(tf[i]); if(a>peak)peak=a; rms+=tf[i]*tf[i]; }
+        rms=Math.sqrt(rms/tf.length);
+      }
+      if(analyser.getFloatFrequencyData){
+        ff=new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(ff);
+      }else{
+        const fd=new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(fd);
+        ff=new Float32Array(fd.length);
+        for(let i=0;i<fd.length;i++) ff[i]=fd[i]/255*90-100;
+      }
+    }catch(e){ tf=null; ff=null; }
   }
-  const live=!!td&&peak>2, cy=H*.32, specBase=H-2, specMax=H*.40;
+  const signal=!!tf&&peak>0.004;
+  const sr=(typeof ctx!=='undefined'&&ctx&&ctx.sampleRate)||44100;
+  const nyq=sr/2;
+  const fftN=analyser?analyser.fftSize:2048;
+  const binHz=sr/fftN;
 
-  /* 零位线 + 波形（无信号时画一条淡色示意线，避免画布看起来是空的） */
-  g.strokeStyle='#d5d6d1'; g.lineWidth=1; g.beginPath(); g.moveTo(0,cy+.5); g.lineTo(W,cy+.5); g.stroke();
+  /* 主频 = 频谱峰值所在 bin */
+  let peakBin=-1,peakDb=-Infinity;
+  if(ff){ for(let i=2;i<ff.length;i++){ if(ff[i]>peakDb){ peakDb=ff[i]; peakBin=i; } } }
+  const peakHz=(signal&&peakBin>0)?Math.round(peakBin*binHz):0;
+  const dbOf=v=>v>0.0005?(20*Math.log10(v)).toFixed(1):'-\u221e';
+
+  /* ---------- 布局 ---------- */
+  const pad=8, readH=small?24:28, gap=8;
+  const avail=H-pad*2-readH-gap;
+  const waveH=Math.max(34,avail*.52), specH=Math.max(30,avail-waveH);
+  const waveTop=pad+readH, waveMid=waveTop+waveH/2;
+  const specTop=waveTop+waveH+gap, specBottom=specTop+specH;
+
+  /* ---------- 顶部读数条 ---------- */
+  g.fillStyle='#f0f3ed'; g.fillRect(pad,pad,W-pad*2,readH);
+  const readY=pad+readH/2;
+  const segW=(W-pad*2-14)/3;
+  const reads=[
+    ['PEAK', signal?dbOf(peak)+' dB':'\u2014'],
+    ['RMS',  signal?dbOf(rms)+' dB':'\u2014'],
+    ['FREQ', signal&&peakHz>20?peakHz+' Hz':'\u2014']
+  ];
+  g.textBaseline='middle';
+  reads.forEach((r,i)=>{
+    const sx=pad+segW*i+5;
+    g.textAlign='left'; g.font='9px '+SCOPE_FONT; g.fillStyle='#9aa097'; g.fillText(r[0],sx,readY-6);
+    g.font='bold '+(small?11:13)+'px '+SCOPE_FONT;
+    g.fillStyle=signal?(i===2?accent:'#3a4038'):'#bcc0b9';
+    g.fillText(r[1],sx,readY+6);
+  });
+  // 右侧状态点
+  g.beginPath(); g.arc(W-pad-6,readY,3.5,0,Math.PI*2);
+  g.fillStyle=signal?accent:(isPlaying?'#e0a63c':'#c6cac2'); g.fill();
+
+  /* ---------- 波形区：网格 + 零线 + 电压刻度 ---------- */
+  g.fillStyle='#ffffff'; g.fillRect(pad,waveTop,W-pad*2,waveH);
+  g.strokeStyle='#eef1eb'; g.lineWidth=1;
+  for(let i=1;i<4;i++){ const y=Math.round(waveTop+waveH*i/4)+.5; g.beginPath(); g.moveTo(pad,y); g.lineTo(W-pad,y); g.stroke(); }
+  for(let i=1;i<8;i++){ const x=Math.round(pad+(W-pad*2)*i/8)+.5; g.beginPath(); g.moveTo(x,waveTop); g.lineTo(x,waveTop+waveH); g.stroke(); }
+  g.strokeStyle='#e0e5dd'; g.strokeRect(pad+.5,waveTop+.5,W-pad*2-1,waveH-1);
+  g.strokeStyle='#d7dcd4'; g.beginPath(); g.moveTo(pad,waveMid+.5); g.lineTo(W-pad,waveMid+.5); g.stroke();
+  g.font='9px '+SCOPE_FONT; g.textAlign='left'; g.textBaseline='middle'; g.fillStyle='#b0b6ad';
+  g.fillText('+1',pad+4,waveTop+9); g.fillText('0',pad+4,waveMid-7); g.fillText('-1',pad+4,waveTop+waveH-9);
+
+  /* ---------- 波形：零点触发 + 辉光 ---------- */
+  const wLeft=pad+(small?24:30), wRight=W-pad-3, wPw=wRight-wLeft;
   g.beginPath();
-  if(live){
-    const n=td.length;
-    for(let i=0;i<n;i++){
-      const x=i/(n-1)*W, y=cy+(td[i]-128)/128*H*.24;
+  if(signal&&tf){
+    const n=tf.length;
+    let t=0; const lim=Math.floor(n*.45);
+    for(let i=1;i<lim;i++){ if(tf[i-1]<0&&tf[i]>=0){ t=i; break; } }   // 上升沿触发，稳定周期波形
+    const span=Math.min(n-t,Math.floor(n*.72));
+    for(let i=0;i<span;i++){
+      const x=wLeft+i/(span-1)*wPw;
+      const y=waveMid-Math.max(-1,Math.min(1,tf[t+i]))*(waveH*.42);
       i?g.lineTo(x,y):g.moveTo(x,y);
     }
-    g.strokeStyle=themeColor||'#2f5fe0'; g.lineWidth=1.7;
+    g.strokeStyle=accent; g.lineWidth=small?1.4:1.8;
+    g.shadowColor=accent; g.shadowBlur=small?4:7;
+    g.stroke(); g.shadowBlur=0;
   }else{
-    for(let x=0;x<=W;x+=2){
-      const y=cy+Math.sin(x/W*Math.PI*7)*H*.055*Math.sin(x/W*Math.PI);
-      x?g.lineTo(x,y):g.moveTo(x,y);
+    for(let x=wLeft;x<=wRight;x+=2){
+      const t=(x-wLeft)/wPw;
+      const y=waveMid-Math.sin(t*Math.PI*8)*waveH*.055*Math.sin(t*Math.PI);
+      x===wLeft?g.moveTo(x,y):g.lineTo(x,y);
     }
-    g.strokeStyle='#bfc3bd'; g.lineWidth=1.4;
+    g.strokeStyle='#c8cdc5'; g.lineWidth=1.4; g.stroke();
   }
-  g.stroke();
+  if(analyser&&!signal){
+    const msg=!isPlaying?'按 \u25b6 播放或用键盘弹奏，查看实时波形':'未检测到信号 \u00b7 检查音量 / 轨道静音';
+    g.font=(small?9:11)+'px '+SCOPE_FONT; g.textAlign='center'; g.textBaseline='middle';
+    const tw=g.measureText(msg).width;
+    g.fillStyle='rgba(255,255,255,.92)'; g.fillRect(W/2-tw/2-6,waveMid+waveH*.16,tw+12,16);
+    g.fillStyle='#8d938a'; g.fillText(msg,W/2,waveMid+waveH*.16+8);
+  }
 
-  /* 频谱柱 */
-  const bars=Math.max(24,Math.min(56,Math.round(W/9))), bw=W/bars;
+  /* ---------- 频谱区：对数频率轴 + dB 刻度 + 峰值保持 ---------- */
+  g.fillStyle='#ffffff'; g.fillRect(pad,specTop,W-pad*2,specH);
+  const dbMin=-72,dbMax=0;
+  const fLo=40,fHi=Math.min(18000,nyq);
+  g.font='9px '+SCOPE_FONT; g.textAlign='left'; g.textBaseline='middle';
+  [-60,-40,-20].forEach(db=>{
+    const y=Math.round(specTop+(dbMax-db)/(dbMax-dbMin)*specH)+.5;
+    g.strokeStyle='#eef1eb'; g.beginPath(); g.moveTo(pad,y); g.lineTo(W-pad,y); g.stroke();
+    if(!small){ g.fillStyle='#b0b6ad'; g.fillText(''+db,pad+3,y-6); }
+  });
+  const fx=f=>pad+Math.log(f/fLo)/Math.log(fHi/fLo)*(W-pad*2);
+  [100,1000,10000].forEach(f=>{
+    if(f<=fLo||f>=fHi) return;
+    const x=Math.round(fx(f))+.5;
+    g.strokeStyle='#eef1eb'; g.beginPath(); g.moveTo(x,specTop); g.lineTo(x,specBottom); g.stroke();
+    g.fillStyle='#b0b6ad'; g.textAlign='center'; g.fillText(f>=1000?(f/1000)+'k':''+f,x,specBottom-7);
+  });
+  g.strokeStyle='#e0e5dd'; g.strokeRect(pad+.5,specTop+.5,W-pad*2-1,specH-1);
+
+  const sLeft=pad+2,sRight=W-pad-2,sPw=sRight-sLeft;
+  const bars=Math.max(28,Math.min(72,Math.floor(sPw/7))),bw=sPw/bars;
+  if(!scopePeakHold||scopePeakHold.length!==bars) scopePeakHold=new Float32Array(bars);
   for(let i=0;i<bars;i++){
-    const idx=fd?Math.min(fd.length-1,Math.floor(Math.pow(i/bars,1.55)*fd.length*.62)):0;
-    const v=live?(fd[idx]/255):(.05+.03*Math.sin(i*.7));
-    const h=Math.max(2,v*specMax);
-    g.fillStyle=v>.55?(themeColor||'#2f5fe0'):(live?'#9b9fa4':'#d8dad5');
-    g.fillRect(i*bw+1,specBase-h,Math.max(1,bw-2),h);
+    const f0=fLo*Math.pow(fHi/fLo,i/bars), f1=fLo*Math.pow(fHi/fLo,(i+1)/bars);
+    const b0=Math.max(0,Math.floor(f0/binHz)), b1=Math.max(b0+1,Math.ceil(f1/binHz));
+    let v=-100;
+    if(ff&&signal){ for(let b=b0;b<=b1&&b<ff.length;b++){ if(ff[b]>v)v=ff[b]; } }
+    const norm=Math.max(0,Math.min(1,(v-dbMin)/(dbMax-dbMin)));
+    scopePeakHold[i]=signal?Math.max(norm,scopePeakHold[i]-.012):Math.max(0,scopePeakHold[i]-.02);
+    const x=sLeft+i*bw;
+    if(norm>0.005){
+      const h=norm*specH;
+      const grad=g.createLinearGradient(0,specBottom,0,specBottom-h);
+      grad.addColorStop(0,mixWhite(accent,.4)); grad.addColorStop(1,accent);
+      g.fillStyle=grad; g.fillRect(x+.5,specBottom-h,Math.max(1,bw-1.5),h);
+    }
+    const ph=scopePeakHold[i]*specH;
+    if(ph>2){ g.fillStyle=accent; g.globalAlpha=.5; g.fillRect(x+.5,specBottom-ph-2,Math.max(1,bw-1.5),2); g.globalAlpha=1; }
+  }
+  // 主频标注
+  if(signal&&peakHz>20&&peakHz<fHi){
+    const label=peakHz+' Hz';
+    g.font='bold '+(small?9:10)+'px '+SCOPE_FONT; g.textAlign='center'; g.textBaseline='top';
+    const lx=Math.max(sLeft+22,Math.min(sRight-22,fx(peakHz))), tw=g.measureText(label).width;
+    g.fillStyle=accent; g.globalAlpha=.12; g.fillRect(lx-tw/2-5,specTop+3,tw+10,15); g.globalAlpha=1;
+    g.fillStyle=accent; g.fillText(label,lx,specTop+5);
   }
 
-  /* 状态提示：始终有可读内容 */
-  const fs=W<300?10:12;
-  g.font=fs+'px "HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
-  g.textAlign='center'; g.textBaseline='middle';
-  let msg='';
-  if(!analyser) msg='音频引擎待激活 · 点一下屏幕或按 ▶';
-  else if(!isPlaying&&!live) msg='按 ▶ 播放，或用键盘弹奏，查看实时波形';
-  else if(!live) msg='已播放 · 未检测到信号，检查音量 / 轨道静音';
-  if(msg){
-    const tw=g.measureText(msg).width, ty=cy+H*.20;
-    g.fillStyle='rgba(247,247,244,.9)'; g.fillRect(W/2-tw/2-8,ty-fs/2-4,tw+16,fs+8);
-    g.fillStyle='#7d8288'; g.fillText(msg,W/2,ty);
-  }else{
-    g.font='10px "HarmonyOS Sans SC",sans-serif'; g.fillStyle='#9a9da2';
-    g.fillText('LIVE · WAVEFORM / SPECTRUM',W/2,H*.76);
-  }
-
-  const s=live?'LIVE':(isPlaying?'PLAY':'IDLE');
+  const s=signal?'LIVE':(isPlaying?'PLAY':'IDLE');
   if(s!==scopeTagState){
     scopeTagState=s;
     const tag=document.getElementById('scopeTag'); if(tag) tag.textContent=s;
