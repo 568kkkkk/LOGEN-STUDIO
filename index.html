@@ -933,6 +933,7 @@ const DRUM_NOTE = {kick:36,snare:38,hat:42,ohat:46,clap:39,tom:45,rim:37};
 /* sampler state (shared by main page, floating ball and picture-in-picture window) */
 let sampleMeta=[], sampleBuffers=new Map(), pipWin=null, capSource='tab';
 let cap={recording:false,pending:false,picker:false,stream:null,audioStream:null,rec:null,mode:'rec',chunks:[],pcm:null,pcmCtx:null,nodes:null,t0:0,source:'tab',timer:null,meter:null,meterData:null,win:null,keepStream:false};
+let capCountdown=0, capCountdownCancel=false;   // 采样开始前的 3 秒倒计时（0=未在倒计时）
 /* 采样提示同时写进主站、悬浮球和置顶窗；toast 会消失，置顶窗里的用户看不见主站 toast */
 let capNote='', capNoteWarn=false;
 /* 采样快捷键与「一次授权、长期复用」的共享流缓存 */
@@ -944,6 +945,7 @@ function capLabel(active,sec){
     (active?('  '+(sec||0).toFixed(1)+'s / 8s'):'（最长 8 秒）');
 }
 function toggleCapture(win){
+  if(capCountdown>0){ capCountdownCancel=true; return; }  // 倒计时中再按一次 = 取消
   if(cap.recording) stopCapture();
   else beginCapture(capSource,win||undefined);
 }
@@ -2304,6 +2306,7 @@ function setCapNote(msg,warn,alsoToast){
   if(alsoToast&&capNote) toast(capNote,warn);
 }
 function capStatusText(){
+  if(capCountdown>0) return '⏳ '+capCountdown+' 秒后开始采样 · 现在去播放想录的声音（再按一次取消）';
   if(cap.recording) return '正在采集'+sourceLabel(cap.source)+'… 现在去播放想录的声音';
   if(capNote) return capNote;
   if(cap.picker) return capSource==='screen'?
@@ -2332,7 +2335,7 @@ function setSource(s,quiet){
 }
 function updateCaptureUI(sec,done){
   const active=cap.recording;
-  const txt=cap.picker?'⏳ 已弹出共享窗口…':cap.pending?'⏳ 准备采样…':capLabel(active,sec);
+  const txt=capCountdown>0?('⏳ '+capCountdown+' 秒后开始'):(cap.picker?'⏳ 已弹出共享窗口…':cap.pending?'⏳ 准备采样…':capLabel(active,sec));
   ['captureBtn','fabCaptureBtn'].forEach(id=>{
     const b=document.getElementById(id);
     if(b){ b.textContent=txt; b.classList.toggle('stop',active); b.classList.toggle('busy',cap.pending); }
@@ -2540,6 +2543,23 @@ async function beginCapture(source,win){
       setCapNote('音频引擎未就绪：先点一下页面上的 ▶ 播放或任意琴键，再重新点「开始采样」。',true,true);
       return;
     }
+    /* 开始前的 3 秒倒计时：授权已完成，留出时间先播放想录的声音；
+       倒计时期间再次按下采样键可取消。仅在授权/音频轨就绪后执行，不影响首次授权的用户手势。 */
+    capCountdownCancel=false;
+    for(let k=3;k>=1;k--){
+      capCountdown=k; updateCaptureUI(0);
+      await waitMs(1000);
+      if(capCountdownCancel){
+        capCountdown=0; capCountdownCancel=false;
+        if(!keepStream){ try{ stream.getTracks().forEach(t=>t.stop()); }catch(e2){} }
+        if(freshMic) resumeAfterMicCapture();
+        setCapNote('已取消采样倒计时。',false,true);
+        updateCaptureUI(0,true);
+        return;
+      }
+    }
+    capCountdown=0; updateCaptureUI(0);
+
     /* 只保留音频轨，别把 getDisplayMedia 的 video 轨交给纯音频录制器 */
     const audioStream=audioOnlyStream(host,stream,atr);
     const Rec=host.MediaRecorder||window.MediaRecorder;
@@ -2591,6 +2611,7 @@ async function beginCapture(source,win){
     setCapNote(msg,true,true);
   }finally{
     cap.pending=false; cap.picker=false;
+    capCountdown=0; capCountdownCancel=false;
     updateCaptureUI(0,true);
   }
 }
@@ -3137,7 +3158,7 @@ function renderPip(sec){
   const d=pipWin.document;
   const b=d.querySelector('[data-pip="capture"]');
   if(b){
-    b.textContent=cap.picker?'⏳ 已弹出共享窗口…':cap.pending?'⏳ 准备采样…':capLabel(cap.recording,sec||0);
+    b.textContent=capCountdown>0?('⏳ '+capCountdown+' 秒后开始'):(cap.picker?'⏳ 已弹出共享窗口…':cap.pending?'⏳ 准备采样…':capLabel(cap.recording,sec||0));
     b.classList.toggle('stop',cap.recording); b.classList.toggle('busy',cap.pending);
   }
   const s=d.querySelector('[data-pip="status"]');
