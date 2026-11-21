@@ -113,9 +113,10 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;bac
 .seq-head,.track-row{display:grid;grid-template-columns:186px minmax(0,1fr);gap:10px;align-items:stretch}
 .seq-head{margin-bottom:7px}
 .head-left{font-size:9px;letter-spacing:.16em;color:var(--muted);display:flex;align-items:center;font-weight:700}
-.head-steps{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:3px}
+.head-steps{display:grid;grid-template-columns:repeat(var(--steps,16),minmax(28px,1fr));gap:3px}
 .head-steps span{text-align:center;font-size:10px;color:var(--muted);font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif;font-weight:700}
 .head-steps span.beat{color:var(--ink)}
+.head-steps span.bar{color:var(--accent)}
 .track-row{padding:4px 0;border-top:1px dashed var(--line)}
 .track-row.selected .track-ctrl{background:var(--soft);border-color:var(--line2)}
 .track-ctrl{border:1px solid transparent;border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:5px;cursor:pointer;transition:.15s}
@@ -130,18 +131,20 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;bac
 select{font-size:11px;border:1px solid var(--line2);background:#fff;border-radius:5px;padding:3px 5px;height:26px;line-height:1.3}
 .track-lower select{max-width:118px}
 .track-lower input[type=range]{flex:1;min-width:34px}
-.steps{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:3px;align-items:stretch}
+.steps{display:grid;grid-template-columns:repeat(var(--steps,16),minmax(28px,1fr));gap:3px;align-items:stretch}
 .step{
   position:relative;height:42px;border:1px solid var(--line);background:var(--soft);border-radius:5px;
   display:flex;align-items:center;justify-content:center;user-select:none;cursor:pointer;transition:background .08s,border-color .08s;
   font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif;font-size:11px;font-weight:700;color:var(--muted);overflow:hidden;
   touch-action:none;
 }
-.step:nth-child(4n+1){border-left:2px solid var(--line2)}
+.step.beat-start{border-left:2px solid var(--line2)}
+.step.bar-start{border-left:2px solid var(--accent)}
 .step:hover{border-color:var(--tc)}
 .step.on{background:var(--tc);border-color:var(--tc);color:#fff}
 .step.on.soft{opacity:.62}
 .step.on.hard{box-shadow:inset 0 0 0 2px rgba(255,255,255,.65)}
+.step.sel::after{content:"";position:absolute;inset:-1px;border:2px solid var(--accent);border-radius:5px;z-index:3;pointer-events:none}
 .step .pitch{position:relative;z-index:1;pointer-events:none;white-space:nowrap}
 .step.drum.on .pitch{font-size:15px;line-height:1}
 .step.playhead::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:3px;background:var(--accent);z-index:2}
@@ -502,8 +505,19 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
       <!-- SEQUENCER -->
       <section class="panel">
         <div class="panel-head">
-          <h2>合成器 <em>Sequencer · 16 steps / 4-4</em></h2>
+          <h2>合成器 <em id="seqMeta">Sequencer · 16 steps / 4-4</em></h2>
           <div class="tool-row">
+            <button id="blankBtn" class="btn sm" title="空白画布 · 从零开始">从零开始</button>
+            <span class="pill">拍号</span>
+            <select id="meterSel" title="拍号">
+              <option value="2-4">2/4</option><option value="3-4">3/4</option><option value="4-4" selected>4/4</option>
+              <option value="5-4">5/4</option><option value="6-8">6/8</option><option value="7-8">7/8</option>
+              <option value="9-8">9/8</option><option value="12-8">12/8</option>
+            </select>
+            <span class="pill">长度</span>
+            <select id="loopBarsSel" title="循环小节数">
+              <option value="1" selected>1 小节</option><option value="2">2 小节</option><option value="4">4 小节</option><option value="8">8 小节</option>
+            </select>
             <button id="addTrack" class="btn sm">+ 轨道</button>
             <button id="delTrack" class="btn sm">− 轨道</button>
             <button id="undoBtn" class="btn sm" title="撤销 Ctrl+Z">↶</button>
@@ -520,7 +534,7 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
           </div>
         </div>
         <div class="seq-foot">
-          <span>点击格子开关 · 拖动连续绘制 · 滚轮改音高（Shift = 八度）· 双击改力度 · 右键清除</span>
+          <span>点击格子选中 · ↑↓ 改音高（Shift = 八度）· Del / 连点 3 次删除 · 滚轮改音高 · 双击改力度 · 右键清除</span>
           <span id="statusText">就绪</span>
         </div>
       </section>
@@ -794,11 +808,13 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
         <span><kbd>V</kbd></span><span>折叠 / 展开演奏键盘（折叠后电脑键盘仍可弹奏）</span>
         <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>撤销；再加 Shift 为重做</span>
         <span><kbd>←</kbd> / <kbd>→</kbd></span><span>整个图案左移 / 右移一步</span>
+        <span><kbd>↑</kbd> / <kbd>↓</kbd></span><span>选中格子后升 / 降音高（Shift = 八度）</span>
+        <span><kbd>Del</kbd></span><span>删除选中音符（也可连点 3 次删除）</span>
         <span><kbd>?</kbd></span><span>打开本帮助</span>
       </div>
       <div class="divider"></div>
-      <p class="note">音序网格：单击开关 · 按住拖动连续绘制 · 滚轮调音高（Shift 滚轮 = 八度）· 双击切换力度 · 右键清除。<br>鼓类轨道不显示音名，音调类轨道显示音名。静音 M / 独奏 S 可快速试听单轨。<br>手机与平板可直接触摸操作，网格可横向滑动。<br><b>自定义配色：</b>点顶栏 🎨（手机横屏在「☰ 工具」抽屉里）可选 8 套预设，或用取色器 / 十六进制色值自定义主色；设置自动保存在本机，并随工程 JSON 一起导出。</p>
-      <p class="note"><b>手机横屏：</b>会自动切换到「横屏工作台」——顶栏压成一行、16 步网格铺满整屏、键盘可一键折叠腾出更多轨道空间；点右上角 <kbd>☰ 工具</kbd> 唤出右侧抽屉，用标签在采样 / 混音 / 灵感 / 示波 / 工程之间切换。网格内上下滑动可滚动轨道，左右滑动仍是连续绘制。导出与帮助弹窗在矮屏上会内部滚动。</p>
+      <p class="note">音序网格：单击选中并开关 · 按住拖动连续绘制 · 选中后 ↑ / ↓ 调音高（Shift = 八度）· 滚轮调音高 · 双击切换力度 · Del 或连点 3 次删除 · 右键清除。<br>合成器上方的「拍号 / 长度」可切换 2/4～12/8 与 1～8 小节，格子数会随之变化；「从零开始」清空为空白画布。<br>鼓类轨道不显示音名，音调类轨道显示音名。静音 M / 独奏 S 可快速试听单轨。<br>手机与平板可直接触摸操作，网格可横向滑动。<br><b>自定义配色：</b>点顶栏 🎨（手机横屏在「☰ 工具」抽屉里）可选 8 套预设，或用取色器 / 十六进制色值自定义主色；设置自动保存在本机，并随工程 JSON 一起导出。</p>
+      <p class="note"><b>手机横屏：</b>会自动切换到「横屏工作台」——顶栏压成一行、网格铺满整屏、键盘可一键折叠腾出更多轨道空间；点右上角 <kbd>☰ 工具</kbd> 唤出右侧抽屉，用标签在采样 / 混音 / 灵感 / 示波 / 工程之间切换。网格内上下滑动可滚动轨道，左右滑动仍是连续绘制。导出与帮助弹窗在矮屏上会内部滚动。</p>
       <div class="divider"></div>
       <p class="note"><b>目标范围：任意网页 / 其他窗口：</b>① <b>任意网页</b>——主站「▣ 其他网页」可共享任一标签页；装了浏览器扩展后，悬浮球里能直接下拉选择<b>任意已打开的标签页</b>并用 <code>tabCapture</code> 直采，全程没有共享窗口。② <b>其他应用窗口 / 系统声音</b>——主站「▣ 其他窗口 / 系统」在共享窗口切「整个屏幕」并勾选「同时分享系统音频」即可（Windows + Chrome；macOS 多数版本只给标签页音频）。这类桌面级采集浏览器<b>无法静默授权</b>，但本站只需授权一次就保持连接，之后按 <kbd>C</kbd> / <kbd>F9</kbd> 直接录；想一次都不弹，把 Windows「立体声混音」或 VB-Cable / BlackHole 等虚拟声卡设为默认输入，再选「◉ 麦克风」即可录下系统全部声音。③ <b>本站声音</b>——「◎ 本站声音」走内录通道，零弹窗。</p>
       <p class="note"><b>不弹共享窗口 / 一次授权长期复用：</b>浏览器安全规则规定，普通网页无法静默读取别的网站或别的窗口，采集外部声音至少要由你选一次来源。本站已改为<b>保持共享连接</b>：第一次授权后音频流不断开，之后按 <kbd>C</kbd> 或 <kbd>F9</kbd> 直接开录，不再弹窗；状态栏的绿色「● 共享已保持」表示连接仍在。想换音源点「⛔ 断开共享」，或取消勾选「保持授权」。<br>高级用法：用 Chrome 启动参数 <code>--auto-select-desktop-capture-source=标题</code> 固定共享源，可连第一次共享窗口都省掉；要真正静默采桌面音频则需要原生程序（WASAPI loopback / 系统音频驱动），网页与扩展都做不到。</p>
@@ -907,7 +923,7 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
    LOGEN STUDIO — independent web music workstation, single file, no dependencies
    ================================================================== */
 
-const STEPS = 16;
+let STEPS = 16;                       // 由拍号 × 小节数实时计算，默认 4/4 × 1 = 16
 const STORE_KEY = 'logen.studio.v2';
 const FAB_KEY = 'logen.fab.pos';
 const COLORS = ['#2f5fe0','#d99318','#3a9a6d','#2f7ec4','#7a5bc4','#c9487f','#3f8f8f','#8a8f45'];
@@ -1032,6 +1048,7 @@ function defaultState(){
     bpm:82, swing:0.34, master:0.82, cutoff:14000,
     delayMix:0.18, delayFb:0.32, delayDiv:0.75, reverbMix:0.20,
     scale:'minor', root:57, exportBars:4, fileName:'LOGEN_loop',
+    meterNum:4, meterDen:4, loopBars:1,
     selected:4, projectName:'我的第一首 Loop', preset:'lofi',
     tracks:[
       mkTrack('底鼓','kick',0.95), mkTrack('军鼓','snare',0.72), mkTrack('踩镲','hat',0.55),
@@ -1041,6 +1058,15 @@ function defaultState(){
 }
 let state = defaultState();
 let undoStack=[], redoStack=[];
+let selCell=null;                     // 当前点选的格子（t=轨道, s=步）
+
+/* 拍号 / 长度 → 网格步数。以十六分音符为一格，8 拍号下每拍 2 格。 */
+function meterInfo(){
+  const num=state.meterNum||4, den=(state.meterDen===8?8:4);
+  const spb=16/den;
+  return {num,den,spb,spBar:num*spb};
+}
+function stepsFor(){ const m=meterInfo(); return m.spBar*(state.loopBars||1); }
 
 function snapshot(){
   undoStack.push(JSON.stringify(state));
@@ -1060,6 +1086,10 @@ function redo(){
 function normalize(){
   if(!state.tracks || !state.tracks.length) state=defaultState();
   const clamp=(v,d,lo,hi)=>{ const n=(v==null||v==='')?d:+v; return Number.isFinite(n)?Math.max(lo,Math.min(hi,n)):d; };
+  state.meterNum=clamp(state.meterNum,4,2,12);
+  state.meterDen=(state.meterDen===8?8:4);
+  state.loopBars=clamp(state.loopBars,1,1,8);
+  STEPS=stepsFor();
   state.bpm=clamp(state.bpm,82,40,200);
   state.swing=clamp(state.swing,.34,0,.6);
   state.master=clamp(state.master,.82,0,1);
@@ -1079,6 +1109,7 @@ function normalize(){
     t.steps.forEach(s=>{ if(typeof s.midi!=='number') s.midi=INST[t.inst].def; if(typeof s.vel!=='number') s.vel=1; });
   });
   if(state.selected>=state.tracks.length) state.selected=state.tracks.length-1;
+  if(selCell&&(selCell.t>=state.tracks.length||selCell.s>=STEPS)) selCell=null;
 }
 function save(){
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
@@ -1567,7 +1598,7 @@ function visualLoop(){
   if(isPlaying&&ctx){
     while(visualQueue.length&&visualQueue[0].time<=ctx.currentTime+.015){
       const q=visualQueue.shift(); highlight(q.step);
-      document.getElementById('statusText').textContent='第 '+(q.step+1)+' / 16 步'+(isRecording?' · 录制中':'');
+      document.getElementById('statusText').textContent='第 '+(q.step+1)+' / '+STEPS+' 步'+(isRecording?' · 录制中':'');
     }
   }
   requestAnimationFrame(visualLoop);
@@ -1579,10 +1610,20 @@ function renderAll(){
   document.getElementById('instLabel').textContent=INST[state.tracks[state.selected].inst].label;
 }
 function renderHead(){
-  const h=document.getElementById('headSteps'); h.innerHTML='';
+  const h=document.getElementById('headSteps'), seq=document.getElementById('seq');
+  const {spb,spBar,num,den}=meterInfo();
+  seq.style.setProperty('--steps',STEPS);
+  seq.style.minWidth=Math.max(760,196+STEPS*30)+'px';
+  h.innerHTML='';
   for(let i=0;i<STEPS;i++){
-    const s=document.createElement('span'); s.className=(i%4===0?'beat':''); s.textContent=(i%4===0)?(i/4+1):'·'; h.appendChild(s);
+    const s=document.createElement('span');
+    const beat=i%spb===0, bar=i%spBar===0;
+    s.className=(beat?'beat':'')+(bar?' bar':'');
+    s.textContent=beat?String(Math.floor((i%spBar)/spb)+1):'·';
+    h.appendChild(s);
   }
+  const meta=document.getElementById('seqMeta');
+  if(meta) meta.textContent='Sequencer · '+STEPS+' steps / '+num+'-'+den+(state.loopBars>1?' × '+state.loopBars:'');
 }
 function renderTracks(){
   const box=document.getElementById('tracks');
@@ -1610,10 +1651,12 @@ function renderTracks(){
     row.appendChild(ctrl);
 
     const steps=document.createElement('div'); steps.className='steps';
-    const drum=INST[tr.inst].drum;
+    const drum=INST[tr.inst].drum, {spb,spBar}=meterInfo();
     tr.steps.forEach((s,j)=>{
       const d=document.createElement('div');
-      d.className='step'+(drum?' drum':'')+(s.on?' on':'')+(s.vel<.8?' soft':'')+(s.vel>1.1?' hard':'');
+      d.className='step'+(drum?' drum':'')+(s.on?' on':'')+(s.vel<.8?' soft':'')+(s.vel>1.1?' hard':'')+
+        (j%spb===0?' beat-start':'')+(j%spBar===0?' bar-start':'')+
+        (selCell&&selCell.t===i&&selCell.s===j?' sel':'');
       d.dataset.step=j; d.dataset.track=i;
       d.innerHTML='<span class="pitch">'+(s.on?(drum?'●':noteName(s.midi)):'')+'</span>';
       steps.appendChild(d);
@@ -1642,6 +1685,8 @@ function renderControls(){
   document.getElementById('projectName').value=state.projectName;
   document.getElementById('fileName').value=state.fileName;
   document.getElementById('octLabel').textContent='八度 C'+octave;
+  document.getElementById('meterSel').value=state.meterNum+'-'+state.meterDen;
+  document.getElementById('loopBarsSel').value=String(state.loopBars);
   document.querySelectorAll('#barsSeg button').forEach(b=>b.classList.toggle('active',+b.dataset.bars===state.exportBars));
 }
 const PRESETS=[
@@ -1653,7 +1698,7 @@ const PRESETS=[
 ];
 function renderPresets(){
   const g=document.getElementById('presetGrid'); g.innerHTML='';
-  PRESETS.forEach(p=>{
+  PRESETS.filter(p=>p.id!=='empty').forEach(p=>{
     const b=document.createElement('button');
     b.className='preset-btn'+(state.preset===p.id?' active':'');
     b.dataset.preset=p.id; b.innerHTML='<strong>'+p.name+'</strong><span>'+p.sub+'</span>';
@@ -1663,10 +1708,11 @@ function renderPresets(){
 function put(ti,pattern,degrees,base){
   const tr=state.tracks[ti]; if(!tr) return;
   for(let i=0;i<STEPS;i++){
-    const ch=pattern[i]||'.', s=tr.steps[i];
+    const ch=pattern[i%pattern.length]||'.', s=tr.steps[i];
     s.on=ch!=='.'&&ch!==' ';
     s.vel=ch==='X'?1.25:(ch==='o'?.62:1);
-    if(degrees&&degrees[i]!=null) s.midi=degToMidi(degrees[i],base==null?root0():base,state.scale);
+    const deg=degrees?degrees[i%degrees.length]:null;
+    if(deg!=null) s.midi=degToMidi(deg,base==null?root0():base,state.scale);
     else if(INST[tr.inst].drum) s.midi=DRUM_NOTE[tr.inst]||36;
     else s.midi=INST[tr.inst].def;
   }
@@ -2044,7 +2090,7 @@ function chunk(id,data){
 function metaTrack(bpm){
   const us=Math.round(60000000/bpm);
   return [0,0xFF,0x51,0x03,(us>>16)&255,(us>>8)&255,us&255,
-          0,0xFF,0x58,0x04,4,2,24,8,
+          0,0xFF,0x58,0x04,state.meterNum||4,(state.meterDen===8?3:2),24,8,
           0,0xFF,0x2F,0x00];
 }
 function midiBlob(){
@@ -3281,8 +3327,38 @@ function bind(){
   const grid=document.getElementById('seq');
   let painting=false, paintOn=true;
   function cellFrom(e){ const el=e.target.closest('.step'); return el?{el,t:+el.dataset.track,s:+el.dataset.step}:null; }
+  function setSelCell(t,s){
+    document.querySelectorAll('.step.sel').forEach(el=>el.classList.remove('sel'));
+    selCell=(t==null?null:{t,s});
+    if(selCell){
+      const el=document.querySelector('.step[data-track="'+t+'"][data-step="'+s+'"]');
+      if(el) el.classList.add('sel');
+    }
+  }
+  function adjustSelPitch(delta){
+    if(!selCell) return false;
+    const tr=state.tracks[selCell.t]; if(!tr) return false;
+    if(INST[tr.inst].drum){ toast('鼓轨音高固定','warn'); return true; }
+    snapshot(); markEdited();
+    const st=tr.steps[selCell.s];
+    st.midi=Math.max(24,Math.min(108,st.midi+delta));
+    applyCell(selCell.t,selCell.s,true,false);
+    preview(selCell.t,st.midi,st.vel);
+    toast('音高：'+noteName(st.midi));
+    return true;
+  }
+  let tap={t:-1,s:-1,time:0,count:0};
   grid.addEventListener('pointerdown',e=>{
     const c=cellFrom(e); if(!c) return;
+    const now=Date.now();
+    const same=tap.t===c.t&&tap.s===c.s&&now-tap.time<700;
+    tap={t:c.t,s:c.s,time:now,count:same?tap.count+1:1};
+    setSelCell(c.t,c.s);
+    if(tap.count>=3){
+      e.preventDefault(); painting=false;
+      snapshot(); applyCell(c.t,c.s,false,false); setSelCell(null);
+      tap.count=0; toast('已删除音符'); return;
+    }
     snapshot();
     painting=true; paintOn=!state.tracks[c.t].steps[c.s].on;
     applyCell(c.t,c.s,paintOn); e.preventDefault();
@@ -3373,6 +3449,16 @@ function bind(){
   };
   document.getElementById('undoBtn').onclick=undo;
   document.getElementById('redoBtn').onclick=redo;
+  document.getElementById('blankBtn').onclick=()=>applyPreset('empty');
+  document.getElementById('meterSel').onchange=e=>{
+    snapshot(); const [n,d]=e.target.value.split('-').map(Number);
+    state.meterNum=n; state.meterDen=d; stopPlayback(true);
+    normalize(); renderAll(); save(); toast('拍号：'+n+'/'+d);
+  };
+  document.getElementById('loopBarsSel').onchange=e=>{
+    snapshot(); state.loopBars=+e.target.value; stopPlayback(true);
+    normalize(); renderAll(); save(); toast('长度：'+state.loopBars+' 小节');
+  };
 
   /* presets & generator */
   document.getElementById('presetGrid').onclick=e=>{
@@ -3466,6 +3552,9 @@ function bind(){
       if(e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
       return;
     }
+    if(selCell&&e.key==='Delete'){ e.preventDefault(); snapshot(); applyCell(selCell.t,selCell.s,false,false); setSelCell(null); return; }
+    if(selCell&&e.key==='ArrowUp'){ e.preventDefault(); adjustSelPitch(e.shiftKey?12:1); return; }
+    if(selCell&&e.key==='ArrowDown'){ e.preventDefault(); adjustSelPitch(e.shiftKey?-12:-1); return; }
     if(e.key===' '){ e.preventDefault(); isPlaying?stopPlayback(false):startPlayback(); return; }
     if(e.key==='?'||e.key==='？'||(e.key==='/'&&e.shiftKey)){ openModal('helpModal'); return; }
     if(e.key==='Escape'){ document.querySelectorAll('.modal').forEach(m=>m.classList.add('hidden')); edStopPreview(); return; }
