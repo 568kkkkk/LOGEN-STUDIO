@@ -534,7 +534,7 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
           </div>
         </div>
         <div class="seq-foot">
-          <span>点击格子选中 · ↑↓ 改音高（Shift = 八度）· Del / 连点 3 次删除 · 滚轮改音高 · 双击改力度 · 右键清除</span>
+          <span>点击格子选中 · 键盘弹奏写入音高 · 连点 3 次 / Del 删除 · 滚轮改音高 · 双击改力度 · 右键清除</span>
           <span id="statusText">就绪</span>
         </div>
       </section>
@@ -808,12 +808,12 @@ footer{max-width:1480px;margin:0 auto;padding:0 20px 24px;font-size:10px;color:v
         <span><kbd>V</kbd></span><span>折叠 / 展开演奏键盘（折叠后电脑键盘仍可弹奏）</span>
         <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>撤销；再加 Shift 为重做</span>
         <span><kbd>←</kbd> / <kbd>→</kbd></span><span>整个图案左移 / 右移一步</span>
-        <span><kbd>↑</kbd> / <kbd>↓</kbd></span><span>选中格子后升 / 降音高（Shift = 八度）</span>
+        <span><kbd>弹奏</kbd></span><span>选中格子后按电脑键盘或点页面琴键，即写入该格音高</span>
         <span><kbd>Del</kbd></span><span>删除选中音符（也可连点 3 次删除）</span>
         <span><kbd>?</kbd></span><span>打开本帮助</span>
       </div>
       <div class="divider"></div>
-      <p class="note">音序网格：单击选中并开关 · 按住拖动连续绘制 · 选中后 ↑ / ↓ 调音高（Shift = 八度）· 滚轮调音高 · 双击切换力度 · Del 或连点 3 次删除 · 右键清除。<br>合成器上方的「拍号 / 长度」可切换 2/4～12/8 与 1～8 小节，格子数会随之变化；「从零开始」清空为空白画布。<br>鼓类轨道不显示音名，音调类轨道显示音名。静音 M / 独奏 S 可快速试听单轨。<br>手机与平板可直接触摸操作，网格可横向滑动。<br><b>自定义配色：</b>点顶栏 🎨（手机横屏在「☰ 工具」抽屉里）可选 8 套预设，或用取色器 / 十六进制色值自定义主色；设置自动保存在本机，并随工程 JSON 一起导出。</p>
+      <p class="note">音序网格：单击只选中（不误触写入） · 随后用电脑键盘弹奏或点页面琴键，即把音高写入该格并显示音名 · 按住拖动连续绘制 · 滚轮调音高 · 双击切换力度 · Del 或连点 3 次删除 · 右键清除。<br>合成器上方的「拍号 / 长度」可切换 2/4～12/8 与 1～8 小节，格子数会随之变化；「从零开始」清空为空白画布。<br>鼓类轨道不显示音名，音调类轨道显示音名。静音 M / 独奏 S 可快速试听单轨。<br>手机与平板可直接触摸操作，网格可横向滑动。<br><b>自定义配色：</b>点顶栏 🎨（手机横屏在「☰ 工具」抽屉里）可选 8 套预设，或用取色器 / 十六进制色值自定义主色；设置自动保存在本机，并随工程 JSON 一起导出。</p>
       <p class="note"><b>手机横屏：</b>会自动切换到「横屏工作台」——顶栏压成一行、网格铺满整屏、键盘可一键折叠腾出更多轨道空间；点右上角 <kbd>☰ 工具</kbd> 唤出右侧抽屉，用标签在采样 / 混音 / 灵感 / 示波 / 工程之间切换。网格内上下滑动可滚动轨道，左右滑动仍是连续绘制。导出与帮助弹窗在矮屏上会内部滚动。</p>
       <div class="divider"></div>
       <p class="note"><b>目标范围：任意网页 / 其他窗口：</b>① <b>任意网页</b>——主站「▣ 其他网页」可共享任一标签页；装了浏览器扩展后，悬浮球里能直接下拉选择<b>任意已打开的标签页</b>并用 <code>tabCapture</code> 直采，全程没有共享窗口。② <b>其他应用窗口 / 系统声音</b>——主站「▣ 其他窗口 / 系统」在共享窗口切「整个屏幕」并勾选「同时分享系统音频」即可（Windows + Chrome；macOS 多数版本只给标签页音频）。这类桌面级采集浏览器<b>无法静默授权</b>，但本站只需授权一次就保持连接，之后按 <kbd>C</kbd> / <kbd>F9</kbd> 直接录；想一次都不弹，把 Windows「立体声混音」或 VB-Cable / BlackHole 等虚拟声卡设为默认输入，再选「◉ 麦克风」即可录下系统全部声音。③ <b>本站声音</b>——「◎ 本站声音」走内录通道，零弹窗。</p>
@@ -1059,6 +1059,7 @@ function defaultState(){
 let state = defaultState();
 let undoStack=[], redoStack=[];
 let selCell=null;                     // 当前点选的格子（t=轨道, s=步）
+let playNoteHook=null;                // 键盘弹奏写入选中格子的音高（在 bind() 中赋值）
 
 /* 拍号 / 长度 → 网格步数。以十六分音符为一格，8 拍号下每拍 2 格。 */
 function meterInfo(){
@@ -2030,6 +2031,7 @@ function playKey(off){
   voice(ctx,g,ctx.currentTime+.005,tr.inst,midi,1,timing().base*2,tr);
   document.querySelectorAll('[data-off="'+off+'"]').forEach(el=>el.classList.add('down'));
   setTimeout(()=>document.querySelectorAll('[data-off="'+off+'"]').forEach(el=>el.classList.remove('down')),150);
+  if(playNoteHook) playNoteHook(midi);
   if(isRecording&&isPlaying) recordNote(midi);
 }
 function recordNote(midi){
@@ -3325,7 +3327,7 @@ function bind(){
 
   /* sequencer (delegated) */
   const grid=document.getElementById('seq');
-  let painting=false, paintOn=true;
+  let painting=false, paintOn=true, painted=false, dragStart=null;
   function cellFrom(e){ const el=e.target.closest('.step'); return el?{el,t:+el.dataset.track,s:+el.dataset.step}:null; }
   function setSelCell(t,s){
     document.querySelectorAll('.step.sel').forEach(el=>el.classList.remove('sel'));
@@ -3335,18 +3337,16 @@ function bind(){
       if(el) el.classList.add('sel');
     }
   }
-  function adjustSelPitch(delta){
-    if(!selCell) return false;
-    const tr=state.tracks[selCell.t]; if(!tr) return false;
-    if(INST[tr.inst].drum){ toast('鼓轨音高固定','warn'); return true; }
+  /* 弹奏写音高：选中格子后，电脑键盘或页面琴键弹哪个音，就把该音写进格子并显示音名 */
+  playNoteHook=midi=>{
+    if(!selCell||(isRecording&&isPlaying)) return;
+    const tr=state.tracks[selCell.t]; if(!tr||INST[tr.inst].drum) return;
     snapshot(); markEdited();
     const st=tr.steps[selCell.s];
-    st.midi=Math.max(24,Math.min(108,st.midi+delta));
+    st.midi=Math.max(24,Math.min(108,Math.round(midi)));
     applyCell(selCell.t,selCell.s,true,false);
-    preview(selCell.t,st.midi,st.vel);
-    toast('音高：'+noteName(st.midi));
-    return true;
-  }
+    toast('音高 → '+noteName(st.midi));
+  };
   let tap={t:-1,s:-1,time:0,count:0};
   grid.addEventListener('pointerdown',e=>{
     const c=cellFrom(e); if(!c) return;
@@ -3354,24 +3354,33 @@ function bind(){
     const same=tap.t===c.t&&tap.s===c.s&&now-tap.time<700;
     tap={t:c.t,s:c.s,time:now,count:same?tap.count+1:1};
     setSelCell(c.t,c.s);
+    if(state.selected!==c.t){
+      state.selected=c.t;
+      document.querySelectorAll('.track-row').forEach(r=>r.classList.toggle('selected',+r.dataset.track===c.t));
+      document.getElementById('instLabel').textContent=INST[state.tracks[c.t].inst].label;
+    }
     if(tap.count>=3){
       e.preventDefault(); painting=false;
       snapshot(); applyCell(c.t,c.s,false,false); setSelCell(null);
-      tap.count=0; toast('已删除音符'); return;
+      tap.count=0; toast('已取消该音高'); return;
     }
-    snapshot();
-    painting=true; paintOn=!state.tracks[c.t].steps[c.s].on;
-    applyCell(c.t,c.s,paintOn); e.preventDefault();
+    /* 单击只选中、不写入，避免误触；拖动仍可连续绘制（跳过起始格） */
+    painting=true; painted=false; dragStart={t:c.t,s:c.s};
+    paintOn=!state.tracks[c.t].steps[c.s].on; e.preventDefault();
   });
-  window.addEventListener('pointerup',()=>{painting=false;});
-  window.addEventListener('pointercancel',()=>{painting=false;});
+  window.addEventListener('pointerup',()=>{painting=false;dragStart=null;});
+  window.addEventListener('pointercancel',()=>{painting=false;dragStart=null;});
   function paintAt(e){
     if(!painting) return;
     const el=document.elementFromPoint(e.clientX,e.clientY);
     const cell=el&&el.closest?el.closest('.step'):null;
     if(!cell||!grid.contains(cell)) return;
     const t=+cell.dataset.track, s=+cell.dataset.step;
-    if(state.tracks[t].steps[s].on!==paintOn) applyCell(t,s,paintOn,false);
+    if(dragStart&&t===dragStart.t&&s===dragStart.s) return;
+    if(state.tracks[t].steps[s].on!==paintOn){
+      if(!painted){ snapshot(); painted=true; }
+      applyCell(t,s,paintOn,false);
+    }
   }
   grid.addEventListener('pointerover',e=>{ if(painting) paintAt(e); });
   grid.addEventListener('pointermove',e=>{ if(painting) paintAt(e); });
@@ -3417,7 +3426,7 @@ function bind(){
     const solo=e.target.closest('[data-solo]');
     if(solo){ snapshot(); const i=+solo.dataset.solo; state.tracks[i].solo=!state.tracks[i].solo; renderTracks(); save(); return; }
     const sel=e.target.closest('[data-select]');
-    if(sel){ state.selected=+sel.dataset.select; document.querySelectorAll('.track-row').forEach(r=>r.classList.toggle('selected',+r.dataset.track===state.selected)); document.getElementById('instLabel').textContent=INST[state.tracks[state.selected].inst].label; return; }
+    if(sel){ state.selected=+sel.dataset.select; setSelCell(null); document.querySelectorAll('.track-row').forEach(r=>r.classList.toggle('selected',+r.dataset.track===state.selected)); document.getElementById('instLabel').textContent=INST[state.tracks[state.selected].inst].label; return; }
   });
   grid.addEventListener('change',e=>{
     const inst=e.target.closest('[data-inst]');
@@ -3553,8 +3562,6 @@ function bind(){
       return;
     }
     if(selCell&&e.key==='Delete'){ e.preventDefault(); snapshot(); applyCell(selCell.t,selCell.s,false,false); setSelCell(null); return; }
-    if(selCell&&e.key==='ArrowUp'){ e.preventDefault(); adjustSelPitch(e.shiftKey?12:1); return; }
-    if(selCell&&e.key==='ArrowDown'){ e.preventDefault(); adjustSelPitch(e.shiftKey?-12:-1); return; }
     if(e.key===' '){ e.preventDefault(); isPlaying?stopPlayback(false):startPlayback(); return; }
     if(e.key==='?'||e.key==='？'||(e.key==='/'&&e.shiftKey)){ openModal('helpModal'); return; }
     if(e.key==='Escape'){ document.querySelectorAll('.modal').forEach(m=>m.classList.add('hidden')); edStopPreview(); return; }
