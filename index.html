@@ -2095,7 +2095,7 @@ function openSampleDB(){
   return new Promise((resolve,reject)=>{
     if(!window.indexedDB) return reject(new Error('本地数据库不可用'));
     let done=false;
-    const timer=setTimeout(()=>finish(null,new Error('数据库打开超时')),3000);
+    const timer=setTimeout(()=>finish(null,new Error('数据库打开超时')),8000);
     function finish(v,err){
       if(done) return; done=true; clearTimeout(timer);
       err?reject(err):resolve(v);
@@ -2114,25 +2114,31 @@ function openSampleDB(){
 }
 function dbTx(mode,fn){
   return openSampleDB().then(db=>new Promise((resolve,reject)=>{
-    let done=false;
-    const timer=setTimeout(()=>{ fail(new Error('数据库操作超时')); },4000);
+    let done=false,result;
+    const timer=setTimeout(()=>{ fail(new Error('数据库操作超时')); },10000);
     function fail(err){ if(done) return; done=true; clearTimeout(timer); try{ db.close(); }catch(e){} reject(err); }
     function ok(v){ if(done) return; done=true; clearTimeout(timer); resolve(v); }
     let tx,st,req;
     try{ tx=db.transaction('samples',mode); st=tx.objectStore('samples'); req=fn(st); }
     catch(e){ return fail(e); }
-    req.onsuccess=()=>ok(req.result);
+    req.onsuccess=()=>{ result=req.result; };
     req.onerror=()=>fail(req.error||new Error('读写失败'));
     tx.onabort=()=>fail(new Error('事务中止'));
     tx.onerror=()=>fail(new Error('事务错误'));
-    tx.oncomplete=()=>{ try{ db.close(); }catch(e){} };
+    /* 写操作必须等事务真正提交（oncomplete）才算成功；移动端刷新会中止未提交事务，
+       若只在 req.onsuccess 就报成功，采样看起来存了、刷新后却丢失。读操作拿到结果即可。 */
+    tx.oncomplete=()=>{ try{ db.close(); }catch(e){} ok(result); };
   }));
 }
 /* 持久化放后台：界面状态先同步更新，数据库慢/被占用也绝不会让「删除」看起来没反应 */
-function dbWrite(fn,onFail){
+function dbWrite(fn,onFail,retry){
   try{
     const p=dbTx('readwrite',fn);
-    if(p&&p.catch) p.catch(e=>{ if(onFail) onFail(e); });
+    if(p&&p.catch) p.catch(e=>{
+      /* 移动端偶发数据库占用/超时，稍后重试一次（传入的 fn 均为 put/delete/clear，幂等） */
+      if(!retry){ setTimeout(()=>dbWrite(fn,onFail,true),200); return; }
+      if(onFail) onFail(e);
+    });
   }catch(e){ if(onFail) onFail(e); }
 }
 async function loadSamples(){
@@ -2753,10 +2759,10 @@ function edDraw(){
     accentSoft=(cs.getPropertyValue('--accent-soft')||'').trim()||accentSoft;
   }catch(err){}
   g.save(); g.beginPath(); g.rect(s,0,Math.max(1,e-s),H); g.clip();
+  g.fillStyle=accentSoft; g.fillRect(s,0,e-s,H);
   g.strokeStyle=accent; g.lineWidth=1; g.beginPath();
   for(let x=Math.max(0,s);x<=Math.min(W,e);x++){ const a=wave(x); g.moveTo(x+.5,H/2-a); g.lineTo(x+.5,H/2+a); }
   g.stroke(); g.restore();
-  g.fillStyle=accentSoft; g.fillRect(s,0,e-s,H);
   g.strokeStyle=accent; g.lineWidth=1.5; g.strokeRect(s+.5,.5,Math.max(1,e-s-1),H-1);
   g.fillStyle=accent; g.fillRect(s-3,0,6,H); g.fillRect(e-3,0,6,H);
   if(ed.playPos!=null){
@@ -3463,6 +3469,7 @@ function bind(){
    专业显示：零点触发的辉光波形 + 对数频率轴频谱 + dB 刻度 + 峰值保持 + PEAK/RMS/主频读数。 */
 let scopeRAF=0, scopeTagState='';
 let scopePeakHold=null;                       // 频谱峰值保持（跨帧复用）
+let scopeRead={peak:0,rms:0,hz:0,ready:false};// 读数平滑（跨帧复用，避免数字跳动）
 const SCOPE_FONT='"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
 function fitScope(cv){
   const r=cv.getBoundingClientRect();
@@ -3518,6 +3525,19 @@ function drawScope(){
   const peakHz=(signal&&peakBin>0)?Math.round(peakBin*binHz):0;
   const dbOf=v=>v>0.0005?(20*Math.log10(v)).toFixed(1):'-\u221e';
 
+  /* 读数稳定化：对数值做指数平滑，主频按 10Hz 步进量化，避免逐帧剧烈跳动。
+     波形/频谱等动态图形仍用瞬时值实时绘制，不受影响。 */
+  if(!signal){ scopeRead.peak=0; scopeRead.rms=0; scopeRead.hz=0; }
+  else if(!scopeRead.ready){
+    scopeRead.peak=peak; scopeRead.rms=rms; scopeRead.hz=peakHz; scopeRead.ready=true;
+  }else{
+    scopeRead.peak += (peak-scopeRead.peak)*0.08;
+    scopeRead.rms  += (rms -scopeRead.rms )*0.08;
+    if(peakHz>20) scopeRead.hz += (peakHz-scopeRead.hz)*0.10;
+  }
+  const dispPeak=scopeRead.peak, dispRms=scopeRead.rms;
+  const dispHz=Math.round(scopeRead.hz/10)*10;
+
   /* ---------- 布局 ---------- */
   const pad=8, readH=small?24:28, gap=8;
   const avail=H-pad*2-readH-gap;
@@ -3530,9 +3550,9 @@ function drawScope(){
   const readY=pad+readH/2;
   const segW=(W-pad*2-14)/3;
   const reads=[
-    ['PEAK', signal?dbOf(peak)+' dB':'\u2014'],
-    ['RMS',  signal?dbOf(rms)+' dB':'\u2014'],
-    ['FREQ', signal&&peakHz>20?peakHz+' Hz':'\u2014']
+    ['PEAK', signal?dbOf(dispPeak)+' dB':'\u2014'],
+    ['RMS',  signal?dbOf(dispRms)+' dB':'\u2014'],
+    ['FREQ', signal&&dispHz>20?dispHz+' Hz':'\u2014']
   ];
   g.textBaseline='middle';
   reads.forEach((r,i)=>{
@@ -3627,14 +3647,8 @@ function drawScope(){
     const ph=scopePeakHold[i]*specH;
     if(ph>2){ g.fillStyle=accent; g.globalAlpha=.5; g.fillRect(x+.5,specBottom-ph-2,Math.max(1,bw-1.5),2); g.globalAlpha=1; }
   }
-  // 主频标注
-  if(signal&&peakHz>20&&peakHz<fHi){
-    const label=peakHz+' Hz';
-    g.font='bold '+(small?9:10)+'px '+SCOPE_FONT; g.textAlign='center'; g.textBaseline='top';
-    const lx=Math.max(sLeft+22,Math.min(sRight-22,fx(peakHz))), tw=g.measureText(label).width;
-    g.fillStyle=accent; g.globalAlpha=.12; g.fillRect(lx-tw/2-5,specTop+3,tw+10,15); g.globalAlpha=1;
-    g.fillStyle=accent; g.fillText(label,lx,specTop+5);
-  }
+  /* 动态图形上不再叠加瞬时参数：主频读数统一由顶部稳定读数条（FREQ）显示，
+     避免随每帧跳动的 Hz 标注干扰视觉。 */
 
   const s=signal?'LIVE':(isPlaying?'PLAY':'IDLE');
   if(s!==scopeTagState){
